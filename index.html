@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#000000">
+<title>Car Player</title>
+<style>
+  :root {
+    --bg: #000;
+    --panel: #15161a;
+    --panel-2: #22242a;
+    --text: #f2f3f5;
+    --muted: #9a9ea8;
+    --accent: #ff3b30;
+    --radius: 14px;
+    --btn: clamp(52px, 11vh, 84px);
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 500 clamp(15px, 3.2vh, 22px)/1.3 -apple-system, system-ui, sans-serif;
+    overflow: hidden; -webkit-user-select: none; user-select: none;
+  }
+  button { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; }
+  input { font: inherit; }
+  .hidden { display: none !important; }
+
+  /* ---------- Home ---------- */
+  #home {
+    position: fixed; inset: 0; display: flex; flex-direction: column;
+    padding: max(12px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 12px max(16px, env(safe-area-inset-left));
+    gap: 12px;
+  }
+  .bar { display: flex; gap: 10px; align-items: center; }
+  .bar input {
+    flex: 1; min-width: 0; height: var(--btn); padding: 0 18px;
+    border-radius: var(--radius); border: 0; outline: none;
+    background: var(--panel-2); color: var(--text); -webkit-user-select: text; user-select: text;
+  }
+  .bar .go, .bar .icon {
+    height: var(--btn); min-width: var(--btn); padding: 0 18px;
+    border-radius: var(--radius); background: var(--accent); font-weight: 700;
+  }
+  .bar .icon { background: var(--panel-2); padding: 0; font-size: 1.3em; }
+  .tabs { display: flex; gap: 8px; }
+  .tabs button {
+    padding: 8px 16px; border-radius: 999px; background: var(--panel); color: var(--muted);
+  }
+  .tabs button.on { background: var(--text); color: #000; }
+  #list {
+    flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch;
+    display: grid; gap: 12px; align-content: start;
+    grid-template-columns: repeat(auto-fill, minmax(clamp(160px, 30vh, 260px), 1fr));
+  }
+  .card { text-align: left; background: var(--panel); border-radius: var(--radius); overflow: hidden; }
+  .card img { width: 100%; aspect-ratio: 16/9; object-fit: cover; display: block; background: #222; }
+  .card .t {
+    padding: 8px 10px; font-size: .8em; line-height: 1.25; height: 3.3em; overflow: hidden;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  }
+  .empty { color: var(--muted); grid-column: 1 / -1; padding: 24px 4px; line-height: 1.5; }
+
+  /* ---------- Player ---------- */
+  #player-wrap { position: fixed; inset: 0; background: #000; }
+  #yt, #player-wrap iframe { position: absolute; inset: 0; width: 100% !important; height: 100% !important; border: 0; }
+  /* Transparent layer over the iframe: catches taps so YouTube's own UI
+     (and its fullscreen button) never takes over. */
+  #tap { position: absolute; inset: 0; z-index: 2; }
+  #tap.passthrough { pointer-events: none; }
+  #controls {
+    position: absolute; left: 0; right: 0; bottom: 0; z-index: 3;
+    padding: 40px max(16px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+    background: linear-gradient(transparent, rgba(0,0,0,.85) 45%);
+    transition: opacity .25s;
+  }
+  #controls.off { opacity: 0; pointer-events: none; }
+  #top {
+    position: absolute; left: 0; right: 0; top: 0; z-index: 3; display: flex; gap: 10px; align-items: center;
+    padding: max(10px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 30px max(16px, env(safe-area-inset-left));
+    background: linear-gradient(rgba(0,0,0,.8), transparent); transition: opacity .25s;
+  }
+  #top.off { opacity: 0; pointer-events: none; }
+  #title { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: .9em; }
+  .round {
+    width: var(--btn); height: var(--btn); border-radius: 50%; background: rgba(255,255,255,.14);
+    display: inline-flex; align-items: center; justify-content: center; flex: none;
+  }
+  .round svg { width: 46%; height: 46%; fill: currentColor; }
+  .round.big { width: calc(var(--btn) * 1.2); height: calc(var(--btn) * 1.2); background: var(--text); color: #000; }
+  .row { display: flex; align-items: center; justify-content: center; gap: clamp(10px, 4vw, 36px); }
+  .progress { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; font-size: .75em; color: var(--muted); font-variant-numeric: tabular-nums; }
+  #seek { flex: 1; height: 28px; position: relative; }
+  #seek::before, #seek .fill { content: ""; position: absolute; left: 0; top: 11px; height: 6px; border-radius: 3px; }
+  #seek::before { right: 0; background: rgba(255,255,255,.25); }
+  #seek .fill { background: var(--accent); width: 0; }
+  #hint {
+    position: absolute; z-index: 4; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    background: rgba(0,0,0,.75); padding: 14px 22px; border-radius: var(--radius); pointer-events: none; text-align: center;
+  }
+  #toast {
+    position: fixed; z-index: 10; left: 50%; top: 16px; transform: translateX(-50%);
+    background: var(--panel-2); padding: 10px 18px; border-radius: 999px; font-size: .8em;
+    transition: opacity .3s; pointer-events: none; max-width: 90vw; text-align: center;
+  }
+
+  /* ---------- Settings ---------- */
+  #settings {
+    position: fixed; inset: 0; z-index: 20; background: rgba(0,0,0,.85);
+    display: flex; align-items: center; justify-content: center; padding: 16px;
+  }
+  #settings .box { background: var(--panel); border-radius: var(--radius); padding: 20px; width: min(560px, 100%); }
+  #settings p { color: var(--muted); font-size: .75em; margin: 8px 0 14px; line-height: 1.45; }
+  #settings a { color: var(--text); }
+</style>
+</head>
+<body>
+
+<!-- Home -->
+<section id="home">
+  <form class="bar" id="search-form" autocomplete="off">
+    <input id="q" type="search" enterkeyhint="search" placeholder="Caută pe YouTube sau lipește un link">
+    <button class="go" type="submit">Caută</button>
+    <button class="icon" type="button" id="open-settings" aria-label="Setări">⚙︎</button>
+    <button class="icon hidden" type="button" id="resume" aria-label="Înapoi la video">▶︎</button>
+  </form>
+  <div class="tabs" id="tabs">
+    <button data-tab="results" class="on">Rezultate</button>
+    <button data-tab="recent">Recente</button>
+  </div>
+  <div id="list"></div>
+</section>
+
+<!-- Player -->
+<section id="player-wrap" class="hidden">
+  <div id="yt"></div>
+  <div id="tap"></div>
+  <div id="hint" class="hidden">Atinge ecranul ca să pornească</div>
+  <div id="top">
+    <button class="round" id="back" aria-label="Căutare">
+      <svg viewBox="0 0 24 24"><path d="M15.5 14h-.8l-.3-.3A6.5 6.5 0 1 0 9.5 16a6.5 6.5 0 0 0 4.2-1.6l.3.3v.8l5 5 1.5-1.5-5-5zm-6 0a4.5 4.5 0 1 1 0-9 4.5 4.5 0 0 1 0 9z"/></svg>
+    </button>
+    <div id="title"></div>
+  </div>
+  <div id="controls">
+    <div class="progress">
+      <span id="cur">0:00</span>
+      <div id="seek"><div class="fill"></div></div>
+      <span id="dur">0:00</span>
+    </div>
+    <div class="row">
+      <button class="round" id="prev" aria-label="Anterior"><svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg></button>
+      <button class="round" id="back10" aria-label="Înapoi 10 secunde"><svg viewBox="0 0 24 24"><path d="M11 18V6l-8.5 6 8.5 6zm.5-6 8.5 6V6l-8.5 6z"/></svg></button>
+      <button class="round big" id="play" aria-label="Play/Pauză"><svg viewBox="0 0 24 24" id="play-icon"><path d="M8 5v14l11-7z"/></svg></button>
+      <button class="round" id="fwd10" aria-label="Înainte 10 secunde"><svg viewBox="0 0 24 24"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"/></svg></button>
+      <button class="round" id="next" aria-label="Următorul"><svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg></button>
+    </div>
+  </div>
+</section>
+
+<!-- Settings -->
+<section id="settings" class="hidden">
+  <div class="box">
+    <strong>Cheie YouTube API</strong>
+    <p>Necesară doar pentru căutare. Fără ea poți lipi link-uri de videoclipuri sau playlist-uri.
+      O obții gratuit din <a href="https://console.cloud.google.com/apis/library/youtube.googleapis.com" target="_blank" rel="noopener">Google Cloud Console</a>
+      (activezi „YouTube Data API v3”, apoi Credentials → Create API key). Se salvează doar în acest browser.</p>
+    <form class="bar" id="key-form">
+      <input id="key" placeholder="AIza…" autocomplete="off" spellcheck="false">
+      <button class="go" type="submit">Salvează</button>
+    </form>
+  </div>
+</section>
+
+<div id="toast" style="opacity:0"></div>
+
+<script>
+(() => {
+  const $ = (s) => document.querySelector(s);
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+  };
+
+  // ---------- State ----------
+  let player = null, playerReady = false, pending = null;
+  let queue = [];          // [{id, title, thumb}]
+  let index = -1;
+  let mode = 'queue';      // 'queue' | 'playlist' (YouTube-managed playlist)
+  let searchMore = null;   // {q, pageToken} to extend the queue when it runs out
+  let results = [];
+  let tab = 'results';
+
+  // ---------- Helpers ----------
+  const fmt = (s) => {
+    s = Math.max(0, Math.floor(s || 0));
+    const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), sec = String(s % 60).padStart(2, '0');
+    return h ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`;
+  };
+  const thumb = (id) => `https://i.ytimg.com/vi/${id}/mqdefault.jpg`;
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  let toastTimer;
+  const toast = (msg) => {
+    const t = $('#toast'); t.textContent = msg; t.style.opacity = 1;
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => (t.style.opacity = 0), 2600);
+  };
+
+  function parseInput(text) {
+    text = text.trim();
+    const list = text.match(/[?&]list=([\w-]+)/);
+    const vid = text.match(/(?:v=|youtu\.be\/|shorts\/|embed\/|live\/)([\w-]{11})/);
+    if (list) return { list: list[1], id: vid && vid[1] };
+    if (vid) return { id: vid[1] };
+    if (/^[\w-]{11}$/.test(text) && /\d|[A-Z].*[a-z]|-|_/.test(text)) return { id: text };
+    return null;
+  }
+
+  // ---------- Views ----------
+  function showHome() {
+    $('#player-wrap').classList.add('hidden');
+    $('#home').classList.remove('hidden');
+    $('#resume').classList.toggle('hidden', !player);
+    render();
+  }
+  function showPlayer() {
+    $('#home').classList.add('hidden');
+    $('#player-wrap').classList.remove('hidden');
+    wake();
+  }
+
+  function render() {
+    document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
+    const items = tab === 'results' ? results : store.get('recent', []);
+    const list = $('#list');
+    if (!items.length) {
+      list.innerHTML = `<div class="empty">${tab === 'results'
+        ? (store.get('key', '') ? 'Caută ceva mai sus.' : 'Lipește un link YouTube (video sau playlist) mai sus.<br>Pentru căutare, adaugă o cheie API din ⚙︎.')
+        : 'Nimic redat încă.'}</div>`;
+      return;
+    }
+    list.innerHTML = items.map((v, i) => `
+      <button class="card" data-i="${i}">
+        <img loading="lazy" src="${esc(v.thumb || thumb(v.id))}" alt="">
+        <div class="t">${esc(v.title || v.id)}</div>
+      </button>`).join('');
+  }
+
+  $('#list').addEventListener('click', (e) => {
+    const card = e.target.closest('.card'); if (!card) return;
+    const items = tab === 'results' ? results : store.get('recent', []);
+    const i = +card.dataset.i;
+    if (items[i].list) return playPlaylist(items[i].list);
+    searchMore = tab === 'results' ? searchMore : null;
+    playQueue(items.slice(), i);
+  });
+  $('#tabs').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) { tab = b.dataset.tab; render(); } });
+
+  // ---------- Search ----------
+  $('#search-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const text = $('#q').value; if (!text.trim()) return;
+    $('#q').blur();
+    const parsed = parseInput(text);
+    if (parsed) {
+      if (parsed.list) return playPlaylist(parsed.list, parsed.id);
+      searchMore = null;
+      return playQueue([{ id: parsed.id }], 0);
+    }
+    if (!store.get('key', '')) { toast('Pentru căutare adaugă cheia API din ⚙︎'); return openSettings(); }
+    try {
+      const r = await search(text);
+      results = r.items; searchMore = r.next ? { q: text, pageToken: r.next } : null;
+      tab = 'results'; render(); $('#list').scrollTop = 0;
+      if (!results.length) toast('Niciun rezultat');
+    } catch (err) { toast(err.message); }
+  });
+
+  async function search(q, pageToken) {
+    const p = new URLSearchParams({
+      part: 'snippet', type: 'video', videoEmbeddable: 'true', maxResults: '25',
+      q, key: store.get('key', ''),
+    });
+    if (pageToken) p.set('pageToken', pageToken);
+    const res = await fetch('https://www.googleapis.com/youtube/v3/search?' + p);
+    const data = await res.json();
+    if (data.error) throw new Error('Eroare YouTube API: ' + data.error.message);
+    return {
+      items: data.items.map((it) => ({
+        id: it.id.videoId,
+        title: decodeEntities(it.snippet.title),
+        thumb: (it.snippet.thumbnails.medium || it.snippet.thumbnails.default).url,
+      })),
+      next: data.nextPageToken,
+    };
+  }
+  function decodeEntities(s) { const t = document.createElement('textarea'); t.innerHTML = s; return t.value; }
+
+  // ---------- Settings ----------
+  function openSettings() { $('#key').value = store.get('key', ''); $('#settings').classList.remove('hidden'); }
+  $('#open-settings').addEventListener('click', openSettings);
+  $('#settings').addEventListener('click', (e) => { if (e.target.id === 'settings') $('#settings').classList.add('hidden'); });
+  $('#key-form').addEventListener('submit', (e) => {
+    e.preventDefault(); store.set('key', $('#key').value.trim());
+    $('#settings').classList.add('hidden'); toast('Salvat'); render();
+  });
+
+  // ---------- Playback ----------
+  function playQueue(items, i) {
+    mode = 'queue'; queue = items; index = i;
+    load({ videoId: queue[index].id });
+  }
+  function playPlaylist(list, startId) {
+    mode = 'playlist'; queue = []; index = -1; searchMore = null;
+    load({ list, startId });
+    remember({ list, id: startId || list, title: 'Playlist', thumb: startId ? thumb(startId) : '' });
+  }
+
+  function load(what) {
+    showPlayer(); showControls();
+    $('#title').textContent = what.videoId && queue[index]?.title || '';
+    if (!playerReady) { pending = what; ensurePlayer(); return; }
+    if (what.list) {
+      player.loadPlaylist({ list: what.list, listType: 'playlist' });
+    } else {
+      player.loadVideoById(what.videoId);
+    }
+    watchStart();
+  }
+
+  async function next() {
+    if (mode === 'playlist') return player.nextVideo();
+    if (index + 1 >= queue.length && searchMore) {
+      try {
+        const r = await search(searchMore.q, searchMore.pageToken);
+        queue.push(...r.items); searchMore = r.next ? { q: searchMore.q, pageToken: r.next } : null;
+      } catch (err) { toast(err.message); }
+    }
+    if (index + 1 < queue.length) { index++; load({ videoId: queue[index].id }); }
+    else toast('Sfârșitul listei');
+  }
+  function prev() {
+    if (player.getCurrentTime() > 5) return player.seekTo(0, true);
+    if (mode === 'playlist') return player.previousVideo();
+    if (index > 0) { index--; load({ videoId: queue[index].id }); }
+    else player.seekTo(0, true);
+  }
+
+  function remember(v) {
+    const key = v.list || v.id;
+    const rec = store.get('recent', []).filter((r) => (r.list || r.id) !== key);
+    rec.unshift(v); store.set('recent', rec.slice(0, 40));
+  }
+
+  // ---------- YouTube player ----------
+  let apiLoading = false;
+  function ensurePlayer() {
+    if (apiLoading) return; apiLoading = true;
+    window.onYouTubeIframeAPIReady = () => {
+      player = new YT.Player('yt', {
+        width: '100%', height: '100%',
+        playerVars: {
+          autoplay: 1, playsinline: 1, fs: 0, rel: 0, controls: 0,
+          iv_load_policy: 3, disablekb: 1, modestbranding: 1,
+        },
+        events: {
+          onReady: () => {
+            playerReady = true;
+            if (pending) { const p = pending; pending = null; load(p); }
+          },
+          onStateChange: onState,
+          onError: onError,
+        },
+      });
+    };
+    const s = document.createElement('script');
+    s.src = 'https://www.youtube.com/iframe_api';
+    document.head.appendChild(s);
+  }
+
+  function onState(e) {
+    const S = YT.PlayerState;
+    if (e.data === S.PLAYING) {
+      startedOk();
+      const d = player.getVideoData ? player.getVideoData() : {};
+      const id = d.video_id || queue[index]?.id;
+      const title = d.title || queue[index]?.title || '';
+      $('#title').textContent = title;
+      if (mode === 'queue' && queue[index] && !queue[index].title && title) queue[index].title = title;
+      if (mode === 'queue' && id) remember({ id, title, thumb: queue[index]?.thumb || thumb(id) });
+      setMedia(title, id);
+      scheduleHide();
+    }
+    if (e.data === S.ENDED && mode === 'queue') next();
+    setPlayIcon(e.data === S.PLAYING || e.data === S.BUFFERING);
+  }
+
+  function onError(e) {
+    const msg = { 2: 'Link invalid', 5: 'Nu poate fi redat', 100: 'Video indisponibil', 101: 'Video blocat pentru redare externă', 150: 'Video blocat pentru redare externă' }[e.data] || 'Eroare la redare';
+    toast(msg + ' — trec la următorul');
+    setTimeout(next, 1500);
+  }
+
+  // iOS may block autoplay with sound until the user taps the video itself.
+  // If nothing starts, let taps pass through to YouTube's iframe for one tap.
+  let startTimer;
+  function watchStart() {
+    clearTimeout(startTimer);
+    startTimer = setTimeout(() => {
+      const st = player.getPlayerState();
+      if (st !== YT.PlayerState.PLAYING && st !== YT.PlayerState.BUFFERING) {
+        $('#tap').classList.add('passthrough'); $('#hint').classList.remove('hidden');
+      }
+    }, 2500);
+  }
+  function startedOk() {
+    clearTimeout(startTimer);
+    $('#tap').classList.remove('passthrough'); $('#hint').classList.add('hidden');
+  }
+
+  // ---------- Controls ----------
+  let hideTimer;
+  function showControls() {
+    $('#controls').classList.remove('off'); $('#top').classList.remove('off'); scheduleHide();
+  }
+  function hideControls() { $('#controls').classList.add('off'); $('#top').classList.add('off'); }
+  function scheduleHide() {
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(() => {
+      if (player && player.getPlayerState() === YT.PlayerState.PLAYING) hideControls();
+    }, 4000);
+  }
+  const controlsVisible = () => !$('#controls').classList.contains('off');
+
+  $('#tap').addEventListener('click', () => (controlsVisible() ? hideControls() : showControls()));
+  const on = (id, fn) => $(id).addEventListener('click', (e) => { e.stopPropagation(); if (player) fn(); scheduleHide(); });
+  on('#play', () => (player.getPlayerState() === YT.PlayerState.PLAYING ? player.pauseVideo() : player.playVideo()));
+  on('#next', next);
+  on('#prev', prev);
+  on('#back10', () => player.seekTo(Math.max(0, player.getCurrentTime() - 10), true));
+  on('#fwd10', () => player.seekTo(player.getCurrentTime() + 10, true));
+  $('#back').addEventListener('click', showHome);
+  $('#resume').addEventListener('click', () => { showPlayer(); showControls(); });
+
+  $('#seek').addEventListener('click', (e) => {
+    e.stopPropagation(); if (!player) return;
+    const r = e.currentTarget.getBoundingClientRect();
+    player.seekTo(((e.clientX - r.left) / r.width) * player.getDuration(), true);
+    scheduleHide();
+  });
+
+  function setPlayIcon(playing) {
+    $('#play-icon').innerHTML = playing ? '<path d="M6 5h4v14H6zm8 0h4v14h-4z"/>' : '<path d="M8 5v14l11-7z"/>';
+  }
+
+  setInterval(() => {
+    if (!playerReady || $('#player-wrap').classList.contains('hidden')) return;
+    const c = player.getCurrentTime(), d = player.getDuration();
+    $('#cur').textContent = fmt(c); $('#dur').textContent = fmt(d);
+    $('#seek .fill').style.width = d ? (c / d * 100) + '%' : 0;
+  }, 500);
+
+  // Steering-wheel / lock-screen buttons, where the browser supports it.
+  function setMedia(title, id) {
+    if (!('mediaSession' in navigator)) return;
+    try {
+      navigator.mediaSession.metadata = new MediaMetadata({ title, artwork: id ? [{ src: thumb(id), sizes: '320x180' }] : [] });
+      navigator.mediaSession.setActionHandler('nexttrack', next);
+      navigator.mediaSession.setActionHandler('previoustrack', prev);
+      navigator.mediaSession.setActionHandler('play', () => player.playVideo());
+      navigator.mediaSession.setActionHandler('pause', () => player.pauseVideo());
+    } catch {}
+  }
+
+  // Keep the screen on while playing.
+  async function wake() { try { await navigator.wakeLock?.request('screen'); } catch {} }
+
+  // ---------- Start ----------
+  const params = new URLSearchParams(location.search);
+  render();
+  const start = parseInput(params.get('v') ? 'v=' + params.get('v') + (params.get('list') ? '&list=' + params.get('list') : '') : params.get('list') ? '?list=' + params.get('list') : '');
+  if (start) start.list ? playPlaylist(start.list, start.id) : playQueue([{ id: start.id }], 0);
+})();
+</script>
+</body>
+</html>
