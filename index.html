@@ -279,7 +279,7 @@
   async function search(q, pageToken) {
     const p = new URLSearchParams({
       part: 'snippet', type: 'video', videoEmbeddable: 'true', maxResults: '25',
-      q, key: store.get('key', ''),
+      q, key: store.get('key', '') || params.get('key') || '',
     });
     if (pageToken) p.set('pageToken', pageToken);
     const res = await fetch('https://www.googleapis.com/youtube/v3/search?' + p);
@@ -477,6 +477,9 @@
 
   // ---------- Start ----------
   const params = new URLSearchParams(location.search);
+  // ?key=… lets the API key live in the bookmarked link, in case the
+  // browser inside APTV doesn't keep localStorage between sessions.
+  if (params.get('key')) store.set('key', params.get('key'));
   render();
   const start = parseInput(params.get('v') ? 'v=' + params.get('v') + (params.get('list') ? '&list=' + params.get('list') : '') : params.get('list') ? '?list=' + params.get('list') : '');
   if (start) start.list ? playPlaylist(start.list, start.id) : playQueue([{ id: start.id }], 0);
