@@ -182,7 +182,7 @@
     get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
   };
-
+const DEFAULT_KEY = 'AIzaSyB8vKSsAm620C5cOjlMPKDE-zBqGX9lhQI';
   // ---------- State ----------
   let player = null, playerReady = false, pending = null;
   let queue = [];          // [{id, title, thumb}]
@@ -235,7 +235,7 @@
     const list = $('#list');
     if (!items.length) {
       list.innerHTML = `<div class="empty">${tab === 'results'
-        ? (store.get('key', '') ? 'Caută ceva mai sus.' : 'Lipește un link YouTube (video sau playlist) mai sus.<br>Pentru căutare, adaugă o cheie API din ⚙︎.')
+        ? (((store.get('key', '') || DEFAULT_KEY) || DEFAULT_KEY) ? 'Caută ceva mai sus.' : 'Lipește un link YouTube (video sau playlist) mai sus.<br>Pentru căutare, adaugă o cheie API din ⚙︎.')
         : 'Nimic redat încă.'}</div>`;
       return;
     }
@@ -267,7 +267,7 @@
       searchMore = null;
       return playQueue([{ id: parsed.id }], 0);
     }
-    if (!store.get('key', '')) { toast('Pentru căutare adaugă cheia API din ⚙︎'); return openSettings(); }
+    if (!((store.get('key', '') || DEFAULT_KEY) || DEFAULT_KEY)) { toast('Pentru căutare adaugă cheia API din ⚙︎'); return openSettings(); }
     try {
       const r = await search(text);
       results = r.items; searchMore = r.next ? { q: text, pageToken: r.next } : null;
@@ -279,7 +279,7 @@
   async function search(q, pageToken) {
     const p = new URLSearchParams({
       part: 'snippet', type: 'video', videoEmbeddable: 'true', maxResults: '25',
-      q, key: store.get('key', '') || params.get('key') || '',
+      q, key: ((store.get('key', '') || DEFAULT_KEY) || DEFAULT_KEY) || params.get('key') || '',
     });
     if (pageToken) p.set('pageToken', pageToken);
     const res = await fetch('https://www.googleapis.com/youtube/v3/search?' + p);
@@ -297,7 +297,7 @@
   function decodeEntities(s) { const t = document.createElement('textarea'); t.innerHTML = s; return t.value; }
 
   // ---------- Settings ----------
-  function openSettings() { $('#key').value = store.get('key', ''); $('#settings').classList.remove('hidden'); }
+  function openSettings() { $('#key').value = (store.get('key', '') || DEFAULT_KEY); $('#settings').classList.remove('hidden'); }
   $('#open-settings').addEventListener('click', openSettings);
   $('#settings').addEventListener('click', (e) => { if (e.target.id === 'settings') $('#settings').classList.add('hidden'); });
   $('#key-form').addEventListener('submit', (e) => {
