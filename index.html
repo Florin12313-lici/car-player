@@ -170,6 +170,10 @@
       <input id="key" placeholder="AIza…" autocomplete="off" spellcheck="false">
       <button class="go" type="submit">Salvează</button>
     </form>
+    <label style="display:flex;gap:12px;align-items:center;margin-top:18px">
+      <input type="checkbox" id="embed-mode" style="width:26px;height:26px">
+      <span>Player integrat (butoane mari, dar fără Premium și fără volan)</span>
+    </label>
   </div>
 </section>
 
@@ -307,7 +311,8 @@ const DEFAULT_KEY = 'AIzaSyB8vKSsAm620C5cOjlMPKDE-zBqGX9lhQI';
 
   // ---------- Settings ----------
   function openSettings() { $('#key').value = (store.get('key', '') || DEFAULT_KEY); $('#settings').classList.remove('hidden'); }
-  $('#open-settings').addEventListener('click', openSettings);
+  $('#open-settings').addEventListener('click', () => { $('#embed-mode').checked = !directMode(); openSettings(); });
+  $('#embed-mode').addEventListener('change', (e) => store.set('mode', e.target.checked ? 'embed' : 'direct'));
   $('#settings').addEventListener('click', (e) => { if (e.target.id === 'settings') $('#settings').classList.add('hidden'); });
   $('#key-form').addEventListener('submit', (e) => {
     e.preventDefault(); store.set('key', $('#key').value.trim());
@@ -315,11 +320,38 @@ const DEFAULT_KEY = 'AIzaSyB8vKSsAm620C5cOjlMPKDE-zBqGX9lhQI';
   });
 
   // ---------- Playback ----------
+  // Direct mode: open YouTube's own embed page as the top-level page instead
+  // of an iframe inside ours. Being first-party on youtube.com, it sees the
+  // login (Premium, no ads), owns the media session (steering-wheel buttons)
+  // and always fills the viewport, so there is no fullscreen to fall out of.
+  const directMode = () => store.get('mode', 'direct') === 'direct';
+  function openDirect({ ids, list, startId }) {
+    const p = new URLSearchParams({ autoplay: '1', playsinline: '1', rel: '0', iv_load_policy: '3' });
+    let first;
+    if (list) {
+      first = startId || '';
+      p.set('list', list); p.set('listType', 'playlist');
+    } else {
+      first = ids[0];
+      if (ids.length > 1) p.set('playlist', ids.slice(1, 150).join(','));
+    }
+    location.href = `https://www.youtube.com/embed/${first}?${p}`;
+  }
+
   function playQueue(items, i) {
+    if (directMode()) {
+      const v = items[i];
+      remember({ id: v.id, title: v.title || '', thumb: v.thumb || thumb(v.id) });
+      return openDirect({ ids: items.slice(i).map((x) => x.id) });
+    }
     mode = 'queue'; queue = items; index = i;
     load({ videoId: queue[index].id });
   }
   function playPlaylist(list, startId) {
+    if (directMode()) {
+      remember({ list, id: startId || list, title: 'Playlist', thumb: startId ? thumb(startId) : '' });
+      return openDirect({ list, startId });
+    }
     mode = 'playlist'; queue = []; index = -1; searchMore = null;
     load({ list, startId });
     remember({ list, id: startId || list, title: 'Playlist', thumb: startId ? thumb(startId) : '' });
@@ -441,15 +473,44 @@ const DEFAULT_KEY = 'AIzaSyB8vKSsAm620C5cOjlMPKDE-zBqGX9lhQI';
   }
   const controlsVisible = () => !$('#controls').classList.contains('off');
 
-  $('#tap').addEventListener('click', () => (controlsVisible() ? hideControls() : showControls()));
-  const on = (id, fn) => $(id).addEventListener('click', (e) => { e.stopPropagation(); if (player) fn(); scheduleHide(); });
-  on('#play', () => (player.getPlayerState() === YT.PlayerState.PLAYING ? player.pauseVideo() : player.playVideo()));
+  const togglePlay = () => (player.getPlayerState() === YT.PlayerState.PLAYING ? player.pauseVideo() : player.playVideo());
+
+  // Tap toggles the controls; horizontal swipe changes the track.
+  // Pointer events instead of click: the CarPlay browser may not synthesize
+  // clicks from car touchscreen input.
+  let down = null;
+  $('#tap').addEventListener('pointerdown', (e) => { down = { x: e.clientX, y: e.clientY }; });
+  $('#tap').addEventListener('pointerup', (e) => {
+    if (!down) return;
+    const dx = e.clientX - down.x, dy = e.clientY - down.y; down = null;
+    if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+      if (!player) return;
+      if (dx < 0) { toast('⏭ Următorul'); next(); } else { toast('⏮ Anterior'); prev(); }
+      return;
+    }
+    controlsVisible() ? hideControls() : showControls();
+  });
+  $('#tap').addEventListener('pointercancel', () => { down = null; });
+
+  const on = (id, fn) => $(id).addEventListener('pointerup', (e) => { e.stopPropagation(); if (player) fn(); scheduleHide(); });
+  on('#play', togglePlay);
   on('#next', next);
   on('#prev', prev);
   on('#back10', () => player.seekTo(Math.max(0, player.getCurrentTime() - 10), true));
   on('#fwd10', () => player.seekTo(player.getCurrentTime() + 10, true));
   $('#back').addEventListener('click', showHome);
   $('#resume').addEventListener('click', () => { showPlayer(); showControls(); });
+
+  // Hardware keys (rotary knob / D-pad / media keys), if the car forwards them.
+  document.addEventListener('keydown', (e) => {
+    if (!player || $('#player-wrap').classList.contains('hidden')) return;
+    const k = e.key;
+    if (k === 'MediaTrackNext' || k === 'ArrowRight' || k === 'ArrowDown') next();
+    else if (k === 'MediaTrackPrevious' || k === 'ArrowLeft' || k === 'ArrowUp') prev();
+    else if (k === 'MediaPlayPause' || k === ' ' || k === 'Enter') togglePlay();
+    else return;
+    e.preventDefault(); showControls();
+  });
 
   $('#seek').addEventListener('click', (e) => {
     e.stopPropagation(); if (!player) return;
