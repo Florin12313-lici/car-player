@@ -60,11 +60,23 @@
     padding: 8px 10px; font-size: .8em; line-height: 1.25; height: 3.3em; overflow: hidden;
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
   }
+  .wrap { position: relative; }
+  .wrap .card { width: 100%; }
+  .add {
+    position: absolute; top: 6px; right: 6px; width: clamp(44px, 9vh, 60px); height: clamp(44px, 9vh, 60px);
+    border-radius: 50%; background: rgba(0,0,0,.72); font-size: 1.5em; font-weight: 700; line-height: 1;
+  }
+  .add.in { background: var(--accent); }
+  .qbar { grid-column: 1 / -1; display: flex; gap: 10px; }
+  .qbar button { height: var(--btn); padding: 0 22px; border-radius: var(--radius); background: var(--panel-2); font-weight: 700; }
+  .qbar .playq { background: var(--accent); flex: 1; }
+  .tabs .chip { margin-left: auto; }
   .empty { color: var(--muted); grid-column: 1 / -1; padding: 24px 4px; line-height: 1.5; }
 
   /* ---------- Player ---------- */
   #player-wrap { position: fixed; inset: 0; background: #000; }
-  #yt, #player-wrap iframe { position: absolute; inset: 0; width: 100% !important; height: 100% !important; border: 0; }
+  #player-wrap { overflow: hidden; }
+  #yt, #player-wrap iframe { position: absolute; left: 0; top: 0; width: 100%; height: 100%; border: 0; }
   /* Transparent layer over the iframe: catches taps so YouTube's own UI
      (and its fullscreen button) never takes over. */
   #tap { position: absolute; inset: 0; z-index: 2; }
@@ -127,7 +139,9 @@
   </form>
   <div class="tabs" id="tabs">
     <button data-tab="results" class="on">Rezultate</button>
+    <button data-tab="queue" id="qtab">Coadă</button>
     <button data-tab="recent">Recente</button>
+    <button class="chip" id="music" type="button">🎵 Doar muzică</button>
   </div>
   <div id="list"></div>
 </section>
@@ -142,6 +156,7 @@
       <svg viewBox="0 0 24 24"><path d="M15.5 14h-.8l-.3-.3A6.5 6.5 0 1 0 9.5 16a6.5 6.5 0 0 0 4.2-1.6l.3.3v.8l5 5 1.5-1.5-5-5zm-6 0a4.5 4.5 0 1 1 0-9 4.5 4.5 0 0 1 0 9z"/></svg>
     </button>
     <div id="title"></div>
+    <button class="round" id="zoom" aria-label="Zoom" style="width:auto;padding:0 18px;border-radius:999px;font-size:.8em;font-weight:700">Umple</button>
   </div>
   <div id="controls">
     <div class="progress">
@@ -172,7 +187,7 @@
     </form>
     <label style="display:flex;gap:12px;align-items:center;margin-top:18px">
       <input type="checkbox" id="embed-mode" style="width:26px;height:26px">
-      <span>Player integrat (butoane mari, dar fără Premium și fără volan)</span>
+      <span>Player integrat: umple tot ecranul (taie marginile), butoane mari — dar fără Premium și fără volan</span>
     </label>
   </div>
 </section>
@@ -187,6 +202,7 @@
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
   };
 const DEFAULT_KEY = 'AIzaSyB8vKSsAm620C5cOjlMPKDE-zBqGX9lhQI';
+  const apiKey = () => store.get('key', '') || DEFAULT_KEY;
   // ---------- State ----------
   let player = null, playerReady = false, pending = null;
   let queue = [];          // [{id, title, thumb}]
@@ -233,32 +249,90 @@ const DEFAULT_KEY = 'AIzaSyB8vKSsAm620C5cOjlMPKDE-zBqGX9lhQI';
     wake();
   }
 
+  // ---------- Queue (songs picked by hand, played in order) ----------
+  const getQueue = () => store.get('queue', []);
+  const setQueue = (q) => { store.set('queue', q); };
+  const inQueue = (id) => getQueue().some((v) => v.id === id);
+  function toggleQueue(v) {
+    const q = getQueue();
+    const i = q.findIndex((x) => x.id === v.id);
+    if (i >= 0) { q.splice(i, 1); toast('Scos din coadă'); }
+    else { q.push({ id: v.id, title: v.title, thumb: v.thumb }); toast(`Adăugat în coadă (${q.length})`); }
+    setQueue(q); render();
+  }
+
+  const tabItems = () => (tab === 'results' ? results : tab === 'queue' ? getQueue() : store.get('recent', []));
+
   function render() {
-    document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
-    const items = tab === 'results' ? results : store.get('recent', []);
+    document.querySelectorAll('#tabs button[data-tab]').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
+    const qn = getQueue().length;
+    $('#qtab').textContent = qn ? `Coadă (${qn})` : 'Coadă';
+    $('#music').classList.toggle('on', musicOnly());
+    const items = tabItems();
     const list = $('#list');
     if (!items.length) {
-      list.innerHTML = `<div class="empty">${tab === 'results'
-        ? (((store.get('key', '') || DEFAULT_KEY) || DEFAULT_KEY) ? 'Caută ceva mai sus.' : 'Lipește un link YouTube (video sau playlist) mai sus.<br>Pentru căutare, adaugă o cheie API din ⚙︎.')
+      list.innerHTML = `<div class="empty">${
+        tab === 'results' ? (apiKey() ? 'Caută ceva mai sus. Apasă pe o melodie ca s-o pornești, sau pe <b>+</b> ca s-o pui în coadă.' : 'Lipește un link YouTube (video sau playlist) mai sus.<br>Pentru căutare, adaugă o cheie API din ⚙︎.')
+        : tab === 'queue' ? 'Coada e goală. Caută melodii și apasă <b>+</b> pe cele pe care le vrei, în ordinea în care vrei să se audă.'
         : 'Nimic redat încă.'}</div>`;
       return;
     }
-    list.innerHTML = items.map((v, i) => `
-      <button class="card" data-i="${i}">
-        <img loading="lazy" src="${esc(v.thumb || thumb(v.id))}" alt="">
-        <div class="t">${esc(v.title || v.id)}</div>
-      </button>`).join('');
+    const bar = tab === 'queue'
+      ? `<div class="qbar"><button class="playq" data-act="playq">▶ Redă coada (${items.length})</button><button data-act="clearq">Golește</button></div>`
+      : '';
+    list.innerHTML = bar + items.map((v, i) => `
+      <div class="wrap">
+        <button class="card" data-i="${i}">
+          <img loading="lazy" src="${esc(v.thumb || thumb(v.id))}" alt="">
+          <div class="t">${esc(v.title || v.id)}</div>
+        </button>
+        ${v.list ? '' : `<button class="add ${tab !== 'queue' && inQueue(v.id) ? 'in' : ''}" data-add="${i}" aria-label="Coadă">${tab === 'queue' ? '✕' : inQueue(v.id) ? '✓' : '+'}</button>`}
+      </div>`).join('');
   }
 
   $('#list').addEventListener('click', (e) => {
+    const act = e.target.closest('[data-act]');
+    if (act) {
+      if (act.dataset.act === 'playq') playQueue(getQueue(), 0);
+      if (act.dataset.act === 'clearq') { setQueue([]); render(); }
+      return;
+    }
+    const items = tabItems();
+    const add = e.target.closest('[data-add]');
+    if (add) return toggleQueue(items[+add.dataset.add]);
     const card = e.target.closest('.card'); if (!card) return;
-    const items = tab === 'results' ? results : store.get('recent', []);
     const i = +card.dataset.i;
     if (items[i].list) return playPlaylist(items[i].list);
     searchMore = tab === 'results' ? searchMore : null;
     playQueue(items.slice(), i);
   });
-  $('#tabs').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) { tab = b.dataset.tab; render(); } });
+  $('#tabs').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-tab]'); if (b) { tab = b.dataset.tab; render(); $('#list').scrollTop = 0; }
+  });
+
+  // Music-only search (YouTube category 10), on by default.
+  const musicOnly = () => store.get('music', true);
+  $('#music').addEventListener('click', () => {
+    store.set('music', !musicOnly()); render();
+    toast(musicOnly() ? 'Caut doar muzică' : 'Caut orice video');
+    if ($('#q').value.trim()) $('#search-form').requestSubmit();
+  });
+
+  // Same song uploaded several times (official video, lyrics, audio, live…):
+  // keep only the first one so the queue doesn't repeat itself.
+  function songKey(title) {
+    return title.toLowerCase()
+      .replace(/\(.*?\)|\[.*?\]|【.*?】/g, ' ')
+      .replace(/\b(official|video|audio|lyrics?|lyric video|music video|videoclip|hd|4k|remaster(ed)?|visualizer|versuri|clip oficial|live)\b/g, ' ')
+      .replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+  }
+  function dedupe(items, seen = new Set()) {
+    return items.filter((v) => {
+      const k = songKey(v.title || v.id);
+      if (seen.has(v.id) || (k && seen.has(k))) return false;
+      seen.add(v.id); if (k) seen.add(k); return true;
+    });
+  }
 
   // ---------- Search ----------
   $('#search-form').addEventListener('submit', async (e) => {
@@ -271,10 +345,10 @@ const DEFAULT_KEY = 'AIzaSyB8vKSsAm620C5cOjlMPKDE-zBqGX9lhQI';
       searchMore = null;
       return playQueue([{ id: parsed.id }], 0);
     }
-    if (!((store.get('key', '') || DEFAULT_KEY) || DEFAULT_KEY)) { toast('Pentru căutare adaugă cheia API din ⚙︎'); return openSettings(); }
+    if (!apiKey()) { toast('Pentru căutare adaugă cheia API din ⚙︎'); return openSettings(); }
     try {
       const r = await search(text);
-      results = r.items; searchMore = r.next ? { q: text, pageToken: r.next } : null;
+      results = dedupe(r.items); searchMore = r.next ? { q: text, pageToken: r.next } : null;
       tab = 'results'; render(); $('#list').scrollTop = 0;
       if (!results.length) toast('Niciun rezultat');
     } catch (err) { toast(err.message); }
@@ -287,6 +361,7 @@ const DEFAULT_KEY = 'AIzaSyB8vKSsAm620C5cOjlMPKDE-zBqGX9lhQI';
       q, key: saved || DEFAULT_KEY,
     });
     if (pageToken) p.set('pageToken', pageToken);
+    if (musicOnly()) p.set('videoCategoryId', '10');
     const res = await fetch('https://www.googleapis.com/youtube/v3/search?' + p);
     const data = await res.json();
     if (data.error) {
@@ -310,7 +385,7 @@ const DEFAULT_KEY = 'AIzaSyB8vKSsAm620C5cOjlMPKDE-zBqGX9lhQI';
   function decodeEntities(s) { const t = document.createElement('textarea'); t.innerHTML = s; return t.value; }
 
   // ---------- Settings ----------
-  function openSettings() { $('#key').value = (store.get('key', '') || DEFAULT_KEY); $('#settings').classList.remove('hidden'); }
+  function openSettings() { $('#key').value = store.get('key', ''); $('#settings').classList.remove('hidden'); }
   $('#open-settings').addEventListener('click', () => { $('#embed-mode').checked = !directMode(); openSettings(); });
   $('#embed-mode').addEventListener('change', (e) => store.set('mode', e.target.checked ? 'embed' : 'direct'));
   $('#settings').addEventListener('click', (e) => { if (e.target.id === 'settings') $('#settings').classList.add('hidden'); });
@@ -374,7 +449,8 @@ const DEFAULT_KEY = 'AIzaSyB8vKSsAm620C5cOjlMPKDE-zBqGX9lhQI';
     if (index + 1 >= queue.length && searchMore) {
       try {
         const r = await search(searchMore.q, searchMore.pageToken);
-        queue.push(...r.items); searchMore = r.next ? { q: searchMore.q, pageToken: r.next } : null;
+        const seen = new Set(); dedupe(queue, seen);
+        queue.push(...dedupe(r.items, seen)); searchMore = r.next ? { q: searchMore.q, pageToken: r.next } : null;
       } catch (err) { toast(err.message); }
     }
     if (index + 1 < queue.length) { index++; load({ videoId: queue[index].id }); }
@@ -419,6 +495,50 @@ const DEFAULT_KEY = 'AIzaSyB8vKSsAm620C5cOjlMPKDE-zBqGX9lhQI';
     document.head.appendChild(s);
   }
 
+  // Zoom to fill: size the iframe to the video's real aspect ratio, scaled up
+  // until it covers the whole screen, and let the overflow get cropped. The
+  // bigger player also makes YouTube pick a higher resolution on its own.
+  const aspects = {};
+  let curAspect = 16 / 9;
+  async function fitVideo(id) {
+    if (!aspects[id]) {
+      try {
+        const p = new URLSearchParams({ part: 'player', id, maxWidth: '8192', key: apiKey() });
+        const d = await (await fetch('https://www.googleapis.com/youtube/v3/videos?' + p)).json();
+        const pl = d.items && d.items[0] && d.items[0].player;
+        aspects[id] = pl && pl.embedWidth && pl.embedHeight ? pl.embedWidth / pl.embedHeight : 16 / 9;
+      } catch { aspects[id] = 16 / 9; }
+    }
+    curId = id; curAspect = aspects[id]; layoutVideo();
+  }
+  // Per-video zoom, cycled with the button: some uploads have black bars
+  // baked into a 16:9 file, which no metadata reveals.
+  //   fill = cover using the real aspect, fill43 = cover as if 4:3, fit = whole picture
+  const ZOOMS = { fill: 'Umple', fill43: 'Umple 4:3', fit: 'Întreg' };
+  let curId = null;
+  const zoomOf = (id) => store.get('zoom', {})[id] || 'fill';
+  $('#zoom').addEventListener('pointerup', (e) => {
+    e.stopPropagation(); if (!curId) return;
+    const order = Object.keys(ZOOMS);
+    const z = order[(order.indexOf(zoomOf(curId)) + 1) % order.length];
+    const all = store.get('zoom', {}); all[curId] = z; store.set('zoom', all);
+    layoutVideo(); scheduleHide();
+  });
+  function layoutVideo() {
+    const f = $('#player-wrap iframe'); if (!f) return;
+    const W = innerWidth, H = innerHeight;
+    const z = curId ? zoomOf(curId) : 'fill';
+    $('#zoom').textContent = ZOOMS[z];
+    if (z === 'fit') { Object.assign(f.style, { width: W + 'px', height: H + 'px', left: 0, top: 0 }); return; }
+    // The picture inside the player has aspect `a`; the player itself keeps
+    // the file's aspect (curAspect), and its height is the picture's height.
+    // Grow it until the picture covers the screen in both directions.
+    const a = z === 'fill43' ? Math.min(4 / 3, curAspect) : curAspect;
+    const h = Math.max(H, W / a), w = h * curAspect;
+    Object.assign(f.style, { width: w + 'px', height: h + 'px', left: (W - w) / 2 + 'px', top: (H - h) / 2 + 'px' });
+  }
+  addEventListener('resize', layoutVideo);
+
   function onState(e) {
     const S = YT.PlayerState;
     if (e.data === S.PLAYING) {
@@ -430,6 +550,7 @@ const DEFAULT_KEY = 'AIzaSyB8vKSsAm620C5cOjlMPKDE-zBqGX9lhQI';
       if (mode === 'queue' && queue[index] && !queue[index].title && title) queue[index].title = title;
       if (mode === 'queue' && id) remember({ id, title, thumb: queue[index]?.thumb || thumb(id) });
       setMedia(title, id);
+      if (id) fitVideo(id);
       scheduleHide();
     }
     if (e.data === S.ENDED && mode === 'queue') next();
