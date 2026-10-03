@@ -277,14 +277,23 @@ const DEFAULT_KEY = 'AIzaSyB8vKSsAm620C5cOjlMPKDE-zBqGX9lhQI';
   });
 
   async function search(q, pageToken) {
+    const saved = store.get('key', '');
     const p = new URLSearchParams({
       part: 'snippet', type: 'video', videoEmbeddable: 'true', maxResults: '25',
-      q, key: ((store.get('key', '') || DEFAULT_KEY) || DEFAULT_KEY) || params.get('key') || '',
+      q, key: saved || DEFAULT_KEY,
     });
     if (pageToken) p.set('pageToken', pageToken);
     const res = await fetch('https://www.googleapis.com/youtube/v3/search?' + p);
     const data = await res.json();
-    if (data.error) throw new Error('Eroare YouTube API: ' + data.error.message);
+    if (data.error) {
+      // A mistyped key saved earlier (⚙︎ or ?key=) overrides the built-in one.
+      // Drop it and retry with the built-in key.
+      if (saved && saved !== DEFAULT_KEY && DEFAULT_KEY) {
+        store.set('key', '');
+        return search(q, pageToken);
+      }
+      throw new Error('Eroare YouTube API: ' + data.error.message);
+    }
     return {
       items: data.items.map((it) => ({
         id: it.id.videoId,
